@@ -5,7 +5,7 @@
 from sys import exit,argv
 
 def casepos(case,sudoku):
-  """Cette fonction renvoie tous les chiffres possibles dans une case s’il y en a
+  """Cette fonction renvoie le nombre de solutions et tous les chiffres possibles dans une case s’il y en a
   case est la position de la case testée dans le sudoku [ligne, colonne]
   """
   liste=set(sudoku[case[0]])
@@ -13,7 +13,8 @@ def casepos(case,sudoku):
   cellule=case[0]//3,case[1]//3
   for i in range(3):
     liste|=set(sudoku[cellule[0]*3+i][cellule[1]*3:(cellule[1]+1)*3])
-  return list(set(range(1,10))-liste)
+  possibles = list(set(range(1,10))-liste)
+  return [len(possibles), possibles]
 
 def estcontradictoire(liste):
   """Cette fonction signale si un sous-ensemble
@@ -49,7 +50,9 @@ try:
       if len(nouvelle)!=9:
         print("La ligne "+str(nl+1)+" ne contient pas 9 chiffres.")
         exit(1)
-      trous=trous+[[nl,i] for i in range(9) if nouvelle[i]==0]
+      # un trou est un triplet contenant :
+      #    [le nombre de possibilités, les possibilités, la case (coordonnées)]
+      trous=trous+[[0,[],(nl,i)] for i in range(9) if nouvelle[i]==0]
       sudoku.append(nouvelle)
 except FileNotFoundError:
   print("Fichier "+fichier+" non trouvé.")
@@ -81,22 +84,59 @@ for l in range(3):
       print("La cellule ("+str(l+1)+";"+str(c+1)+") est contradictoire.")
       exit(1)
 
+# L'heuristique intervient sur le choix du trou dans le parcours de recherche.
+# Au lieu de prendre le prochain trou dans un ordre prédéterminé (en parcourant lignes et colonnes)
+# on propose ici d'intervenir sur le trou ayant le moins de possibilités.
+# C'est la généralisation de la méthode de résolution intuitive d'un humain qui
+# cherche d'abord à remplir les cases "imposées"
+def heuristique(trous, sudoku):
+  trous = sorted([casepos(case,sudoku) + [case] for nbsol,possibles,case in trous])
+  return trous
+
 # La résolution
+trousbouches = []
 
-possibles=[[] for i in trous]
-casearemplir=0
+while len(trous):
+  trous = heuristique(trous, sudoku)
+  # rappels
+  #  -un trou est un triplet contenant :
+  #    [le nombre de possibilités, les possibilités, la case (coordonnées)]
+  #  -la liste de trous est triée par ordre croissant sur le nombre de possibilités
 
-while casearemplir<len(trous):
-  possibles[casearemplir]=casepos(trous[casearemplir],sudoku)
-  try:
-    while not possibles[casearemplir]:
-      sudoku[trous[casearemplir][0]][trous[casearemplir][1]]=0
-      casearemplir-=1
-  except IndexError:
-    print("Le sudoku n’a pas de solution.")
-    exit(1)
-  sudoku[trous[casearemplir][0]][trous[casearemplir][1]]=possibles[casearemplir].pop()
-  casearemplir+=1
+  # trous[0][0] est le plus petit nombre de solution parmi les trous
+  # si ce nombre vaut 0 c'est qu'on est bloqué dans notre progression, il faut revenir en arrière
+  # l'heuristique fait que cet état est détecté au plus vite et évite donc une descente inutile
+  # plus profonde dans l'arbre
+  while trous[0][0] == 0:
+    # -on récupère le dernier objet trou de la liste trousbouches
+    # -on replace effectivement le trou dans la grille du sudoku
+    # -on replace l'objet trou en début de liste trous (cet objet trou contient toujours
+    #   ses autres valeurs possibles)
+    try:
+      trou = trousbouches.pop()
+    except IndexError:
+      print("Le sudoku n’a pas de solution.")
+      exit(1)      
+    case = trou[2]; sudoku[case[0]][case[1]]=0
+    trous.insert(0, trou)
+
+
+  # à cet endroit du programme on est certain que
+  # trous[0][0] (le plus petit nombre de solution parmi les trous) est non nul
+
+  # on sort le premier objet trou de la liste trous
+  trou = trous.pop(0)
+
+  # on en récupère une valeur possible et on met l'objet à jour
+  nbsol,possibles,case = trou
+  possible = possibles.pop()
+  nbsol -= 1
+  trou = [nbsol, possibles, case]
+
+  # on bouche le trou avec la valeur possible extraite
+  trousbouches.append(trou)
+  sudoku[case[0]][case[1]]=possible
+
 
 # Présentation de la grille résolue
 
@@ -104,3 +144,5 @@ for l in sudoku:
   for c in l:
     print(c, end="")
   print()
+
+
